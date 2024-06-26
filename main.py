@@ -29,11 +29,8 @@ def count_tokens(text, model=MODEL):
         encoding = tiktoken.encoding_for_model(model)
         return len(encoding.encode(text))
     except Exception as e:
-        if 'width' in text.keys() and 'height' in text.keys():
-            return COST_BASE_IMAGE + COST_IMAGE_TILE * (text['width'] * text['height'] // (512 * 512))
-        else:
-            print(f"Error tokenizing text: {e}")
-            return 0
+        print(f"Error tokenizing text: {e}")
+        return 0
 
 
 def read_conversation_json(file_path):
@@ -49,6 +46,7 @@ def extract_token_usage(data):
     monthly_output_tokens = defaultdict(int)
 
     for conversation in data:
+        cumulative_history = ""
         for message_id, message_data in conversation['mapping'].items():
             try:
                 message_content = message_data.get('message', {}).get('content', {}).get('parts', [''])
@@ -57,11 +55,14 @@ def extract_token_usage(data):
                 if create_time and message_content[0]:
                     month_key = datetime.fromtimestamp(create_time).strftime('%Y-%m')
                     for part in message_content:
-                        token_count = count_tokens(part)
                         if author_role == 'user':
+                            cumulative_history += part + " "
+                            token_count = count_tokens(cumulative_history)
                             monthly_input_tokens[month_key] += token_count
                         elif author_role == 'assistant':
+                            token_count = count_tokens(part)
                             monthly_output_tokens[month_key] += token_count
+                            cumulative_history += part + " "
             except AttributeError:
                 pass
     return monthly_input_tokens, monthly_output_tokens
