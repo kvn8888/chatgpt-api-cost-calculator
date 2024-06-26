@@ -6,7 +6,7 @@ from dateutil.relativedelta import relativedelta
 from collections import defaultdict
 import tiktoken
 
-# Global variables for cost calculation (see https://openai.com/api/pricing/)
+# Global variables for cost calculation
 COSTS = {
     "gpt-4": {"input": 30.0, "output": 60.0},
     "gpt-4-turbo": {"input": 10.0, "output": 30.0},
@@ -16,12 +16,12 @@ COSTS = {
 
 MODEL_MAPPINGS = {
     "gpt-4": "gpt-4",
-    "gpt-4-browsing": "gpt-4",
-    "gpt-4-code-interpreter": "gpt-4",
-    "gpt-4-dalle": "gpt-4",
-    "gpt-4-gizmo": "gpt-4",
-    "gpt-4-mobile": "gpt-4",
-    "gpt-4-plugins": "gpt-4",
+    "gpt-4-browsing": "gpt-4-turbo",
+    "gpt-4-code-interpreter": "gpt-4-turbo",
+    "gpt-4-dalle": "gpt-4-turbo",
+    "gpt-4-gizmo": "gpt-4-turbo",
+    "gpt-4-mobile": "gpt-4-turbo",
+    "gpt-4-plugins": "gpt-4-turbo",
     "gpt-4o": "gpt-4o",
     "text-davinci-002-render": "gpt-3.5-turbo",
     "text-davinci-002-render-sha": "gpt-3.5-turbo",
@@ -29,26 +29,13 @@ MODEL_MAPPINGS = {
 }
 
 def count_tokens(text, model="gpt-4"):
-    """
-    Count the number of tokens in a given text using the specified model's tokenizer.
-
-    Args:
-    text (str): The text to tokenize.
-    model (str): The name of the model to use for tokenization. Default is "gpt-4".
-
-    Returns:
-    int: The number of tokens in the text.
-    """
+    """Count the number of tokens in a given text using the specified model's tokenizer."""
     try:
         encoding = tiktoken.encoding_for_model(model)
         return len(encoding.encode(text))
     except Exception as e:
-        if isinstance(text, dict) and 'width' in text.keys() and 'height' in text.keys():
-            return COST_BASE_IMAGE + COST_IMAGE_TILE * (text['width'] * text['height'] // (512 * 512))
-        else:
-            print(f"Error tokenizing text: {e}")
-            return 0
-
+        print(f"Error tokenizing text: {e}")
+        return 0
 
 def read_conversation_json(file_path):
     """Read and parse the JSON file containing the conversation data."""
@@ -56,11 +43,10 @@ def read_conversation_json(file_path):
         data = json.load(file)
     return data
 
-
 def extract_token_usage(data):
     """Extract the monthly token usage from the conversation data."""
     monthly_model_usage = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
-    conversation_history = ""
+    conversation_histories = defaultdict(str)
 
     for conversation in data:
         for message_id, message_data in conversation['mapping'].items():
@@ -78,16 +64,24 @@ def extract_token_usage(data):
                             part = json.dumps(part)
                         token_count = count_tokens(part, model)
                         if author_role == 'user':
-                            conversation_history += part + " "
-                            token_count = count_tokens(conversation_history, model)
-                            monthly_model_usage[month_key][model]['input'] += token_count
+                            conversation_histories[model] += part + " "
+                            cumulative_token_count = count_tokens(conversation_histories[model], model)
+                            monthly_model_usage[month_key][model]['input'] += cumulative_token_count
                         elif author_role == 'assistant':
                             monthly_model_usage[month_key][model]['output'] += token_count
-                            conversation_history += part + " "
+                            conversation_histories[model] += part + " "
             except AttributeError:
                 pass
     return monthly_model_usage
 
+def calculate_cost(model_usage):
+    """Calculate the cost based on input and output tokens for each model."""
+    total_cost = 0
+    for model, usage in model_usage.items():
+        input_cost = (usage['input'] / 1_000_000) * COSTS[model]["input"]
+        output_cost = (usage['output'] / 1_000_000) * COSTS[model]["output"]
+        total_cost += input_cost + output_cost
+    return total_cost
 
 def get_all_months(start_date, end_date):
     """Generate a list of all months between start_date and end_date."""
@@ -97,7 +91,6 @@ def get_all_months(start_date, end_date):
         months.append(current_date.strftime('%Y-%m'))
         current_date += relativedelta(months=1)
     return months
-
 
 def plot_token_usage(monthly_model_usage):
     all_months = sorted(monthly_model_usage.keys())
@@ -134,7 +127,6 @@ def plot_token_usage(monthly_model_usage):
     plt.tight_layout()
     plt.show()
 
-
 def print_token_usage(monthly_model_usage, monthly_costs):
     """Print the monthly and cumulative token usage with cost for each model."""
     all_months = sorted(monthly_model_usage.keys())
@@ -150,15 +142,6 @@ def print_token_usage(monthly_model_usage, monthly_costs):
         print(f'{month:<10}{"TOTAL":<15}{"":<15}{"":<15}{monthly_costs[month]:>15,.2f}')
         print('-' * 70)
 
-def calculate_cost(model_usage):
-    """Calculate the cost based on input and output tokens for each model."""
-    total_cost = 0
-    for model, usage in model_usage.items():
-        input_cost = (usage['input'] / 1_000_000) * COSTS[model]["input"]
-        output_cost = (usage['output'] / 1_000_000) * COSTS[model]["output"]
-        total_cost += input_cost + output_cost
-    return total_cost
-
 def main():
     json_file_path = 'chatgpt-api-cost-calculator/conversation/conversations.json'
     data = read_conversation_json(json_file_path)
@@ -170,7 +153,6 @@ def main():
     # Pass both arguments to print_token_usage
     print_token_usage(monthly_model_usage, monthly_costs)
     plot_token_usage(monthly_model_usage)
-
 
 if __name__ == '__main__':
     main()
