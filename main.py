@@ -39,17 +39,24 @@ def count_tokens(text, model="gpt-4"):
 
 def read_conversation_json(file_path):
     """Read and parse the JSON file containing the conversation data."""
+    print(f"Reading data from {file_path}...")
     with open(file_path, 'r') as file:
         data = json.load(file)
+    print("Data reading completed.")
     return data
 
 def extract_token_usage(data):
     """Extract the monthly token usage from the conversation data."""
+    print("Extracting token usage from conversation data...")
     monthly_model_usage = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
     conversation_histories = defaultdict(str)
 
+    total_messages = sum(len(conversation['mapping']) for conversation in data)
+    processed_messages = 0
+
     for conversation in data:
         for message_id, message_data in conversation['mapping'].items():
+            processed_messages += 1
             try:
                 message_content = message_data.get('message', {}).get('content', {}).get('parts', [''])
                 author_role = message_data.get('message', {}).get('author', {}).get('role', '')
@@ -72,6 +79,12 @@ def extract_token_usage(data):
                             conversation_histories[model] += part + " "
             except AttributeError:
                 pass
+            
+            # Print progress
+            if processed_messages % 100 == 0 or processed_messages == total_messages:
+                print(f"Processed {processed_messages}/{total_messages} messages...")
+
+    print("Token usage extraction completed.")
     return monthly_model_usage
 
 def calculate_cost(model_usage):
@@ -93,6 +106,7 @@ def get_all_months(start_date, end_date):
     return months
 
 def plot_token_usage(monthly_model_usage):
+    print("Plotting token usage data...")
     all_months = sorted(monthly_model_usage.keys())
     all_models = sorted(set(model for month_data in monthly_model_usage.values() for model in month_data.keys()))
 
@@ -126,9 +140,11 @@ def plot_token_usage(monthly_model_usage):
 
     plt.tight_layout()
     plt.show()
+    print("Plotting completed.")
 
 def print_token_usage(monthly_model_usage, monthly_costs):
     """Print the monthly and cumulative token usage with cost for each model."""
+    print("Printing token usage data...")
     all_months = sorted(monthly_model_usage.keys())
     all_models = set(model for month_data in monthly_model_usage.values() for model in month_data.keys())
 
@@ -141,14 +157,17 @@ def print_token_usage(monthly_model_usage, monthly_costs):
             print(f'{month:<10}{model:<15}{input_tokens:>15,}{output_tokens:>15,}{cost:>15,.2f}')
         print(f'{month:<10}{"TOTAL":<15}{"":<15}{"":<15}{monthly_costs[month]:>15,.2f}')
         print('-' * 70)
+    print("Printing completed.")
 
 def main():
-    json_file_path = 'chatgpt-api-cost-calculator/conversation/conversations.json'
+    json_file_path = '/Users/kevinc/Development/AI/chatgpt-api-cost-calculator/conversation/conversations.json'
     data = read_conversation_json(json_file_path)
     monthly_model_usage = extract_token_usage(data)
     
     # Calculate monthly costs
+    print("Calculating monthly costs...")
     monthly_costs = {month: calculate_cost(usage) for month, usage in monthly_model_usage.items()}
+    print("Monthly cost calculation completed.")
     
     # Pass both arguments to print_token_usage
     print_token_usage(monthly_model_usage, monthly_costs)
