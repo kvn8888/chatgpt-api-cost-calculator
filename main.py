@@ -63,6 +63,7 @@ def extract_token_usage(data, tokenizers):
     processed_messages = 0
 
     for conversation in data:
+        cumulative_input_tokens = 0
         for message_id, message_data in conversation['mapping'].items():
             processed_messages += 1
             try:
@@ -80,16 +81,22 @@ def extract_token_usage(data, tokenizers):
                         if isinstance(part, dict):
                             part = json.dumps(part)
                         
+                        token_count = count_tokens(part, tokenizer)
+
+                        # Cap cumulative token count at 32,000
+                        if cumulative_input_tokens + token_count > 32000:
+                            token_count = 32000 - cumulative_input_tokens  # Adjust token count to not exceed the limit
+                            cumulative_input_tokens = 32000  # Cap the cumulative count
+                        else:
+                            cumulative_input_tokens += token_count
+
                         if author_role == 'user':
-                            token_count = count_tokens(part, tokenizer)
                             monthly_model_usage_input[month_key][model]['input'] += token_count
+
                         elif author_role == 'assistant':
-                            # Tokenize only the assistant's response
-                            token_count = count_tokens(part, tokenizer)
                             monthly_model_usage_output[month_key][model]['output'] += token_count
-                            if children:
+                            if children:  # Consider tokens for input if there are follow-up messages
                                 monthly_model_usage_input[month_key][model]['input'] += token_count
-                            # Add the current assistant message to the cumulative history
             except AttributeError:
                 pass
             
@@ -132,6 +139,9 @@ def plot_token_usage(monthly_model_usage_input, monthly_model_usage_output):
     x = range(len(all_months))
     width = 0.35 / len(all_models)
     
+    cumulative_cost = 0.0
+    cumulative_costs = []
+    
     for i, model in enumerate(all_models):
         input_data = [monthly_model_usage_input[month][model]['input'] for month in all_months]
         output_data = [monthly_model_usage_output[month].get(model, {}).get('output', 0) for month in all_months]
@@ -148,10 +158,22 @@ def plot_token_usage(monthly_model_usage_input, monthly_model_usage_output):
 
     ax1_twin = ax1.twinx()
     monthly_costs = [calculate_cost(monthly_model_usage_input[month], monthly_model_usage_output[month]) for month in all_months]
+    for cost in monthly_costs:
+        cumulative_cost += cost
+        cumulative_costs.append(cumulative_cost)
+
     ax1_twin.plot(x, monthly_costs, color='red', label='Monthly Cost', marker='o', alpha=0.5)
     ax1_twin.set_ylabel('Cost (USD)', color='red')
     ax1_twin.tick_params(axis='y', labelcolor='red')
     ax1_twin.legend(loc='upper right', bbox_to_anchor=(1, 0.9))
+
+    ax2.plot(all_months, cumulative_costs, color='blue', label='Cumulative Cost', marker='o')
+    ax2.set_xlabel('Month')
+    ax2.set_ylabel('Cumulative Cost (USD)')
+    ax2.set_title('Cumulative Monthly Cost')
+    ax2.set_xticks(x)
+    ax2.set_xticklabels(all_months, rotation=45, ha='right')
+    ax2.legend()
 
     plt.tight_layout()
     plt.show()
@@ -164,20 +186,25 @@ def print_token_usage(monthly_model_usage_input, monthly_model_usage_output, mon
     all_months = sorted(monthly_model_usage_input.keys())
     all_models = set(model for month_data in monthly_model_usage_input.values() for model in month_data.keys())
 
-    print(f'{"Month":<10}{"Model":<15}{"Input Tokens":>15}{"Output Tokens":>15}{"Cost (USD)":>15}')
+    cumulative_cost = 0.0
+    print(f'{"Month":<10}{"Model":<15}{"Input Tokens":>15}{"Output Tokens":>15}{"Cost (USD)":>15}{"Cumulative Cost (USD)":>20}')
     for month in all_months:
+        month_total_cost = 0.0
         for model in all_models:
             input_tokens = monthly_model_usage_input[month][model]['input']
             output_tokens = monthly_model_usage_output[month].get(model, {}).get('output', 0)
             cost = (input_tokens / 1_000_000 * COSTS[model]["input"]) + (output_tokens / 1_000_000 * COSTS[model]["output"])
+            month_total_cost += cost
             print(f'{month:<10}{model:<15}{input_tokens:>15,}{output_tokens:>15,}{cost:>15,.2f}')
-        print(f'{month:<10}{"TOTAL":<15}{"":<15}{"":<15}{monthly_costs[month]:>15,.2f}')
-        print('-' * 70)
+        cumulative_cost += month_total_cost
+        print(f'{month:<10}{"TOTAL":<15}{"":<15}{"":<15}{month_total_cost:>15,.2f}{cumulative_cost:>20,.2f}')
+        print('-' * 90)
     print("Printing completed.")
 
 
+
 def main():
-    json_file_path = '/Users/kevinc/Development/AI/chatgpt-api-cost-calculator/conversation/conversations.json'
+    json_file_path = 'chatgpt-api-cost-calculator/conversation/conversations_newer.json'
     data = read_conversation_json(json_file_path)
     
     # Load tokenizers for all models once
