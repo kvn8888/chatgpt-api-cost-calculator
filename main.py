@@ -134,7 +134,7 @@ def plot_token_usage(monthly_model_usage_input, monthly_model_usage_output):
     all_months = sorted(monthly_model_usage_input.keys())
     all_models = sorted(set(model for month_data in monthly_model_usage_input.values() for model in month_data.keys()))
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 20))
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10))
     
     x = range(len(all_months))
     width = 0.35 / len(all_models)
@@ -154,7 +154,6 @@ def plot_token_usage(monthly_model_usage_input, monthly_model_usage_output):
     ax1.set_title('Monthly Token Usage by Model')
     ax1.set_xticks([i + width*(len(all_models)-1)/2 for i in x])
     ax1.set_xticklabels(all_months, rotation=45, ha='right')
-    ax1.legend(loc='upper left', bbox_to_anchor=(1, 1))
 
     ax1_twin = ax1.twinx()
     monthly_costs = [calculate_cost(monthly_model_usage_input[month], monthly_model_usage_output[month]) for month in all_months]
@@ -165,7 +164,6 @@ def plot_token_usage(monthly_model_usage_input, monthly_model_usage_output):
     ax1_twin.plot(x, monthly_costs, color='red', label='Monthly Cost', marker='o', alpha=0.5)
     ax1_twin.set_ylabel('Cost (USD)', color='red')
     ax1_twin.tick_params(axis='y', labelcolor='red')
-    ax1_twin.legend(loc='upper right', bbox_to_anchor=(1, 0.9))
 
     ax2.plot(all_months, cumulative_costs, color='blue', label='Cumulative Cost', marker='o')
     ax2.set_xlabel('Month')
@@ -174,6 +172,9 @@ def plot_token_usage(monthly_model_usage_input, monthly_model_usage_output):
     ax2.set_xticks(x)
     ax2.set_xticklabels(all_months, rotation=45, ha='right')
     ax2.legend()
+    ax1.legend(loc='upper left', bbox_to_anchor=(1.15, 1), borderaxespad=0., handles=ax1.containers + [ax1_twin.lines[0]])
+
+    plt.subplots_adjust(right=0.85)
 
     plt.tight_layout()
     plt.show()
