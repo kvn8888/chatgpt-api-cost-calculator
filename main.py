@@ -99,13 +99,18 @@ def extract_token_usage(data, tokenizers):
     print("Token usage extraction completed.")
     return monthly_model_usage_input, monthly_model_usage_output
 
-def calculate_cost(model_usage):
+def calculate_cost(input_usage, output_usage):
     """Calculate the cost based on input and output tokens for each model."""
-    total_cost = 0
-    for model, usage in model_usage.items():
-        input_cost = (usage['input'] / 1_000_000) * COSTS[model]["input"]
-        output_cost = (usage['output'] / 1_000_000) * COSTS[model]["output"]
-        total_cost += input_cost + output_cost
+    total_cost = 0.0
+    for model, usage in input_usage.items():
+        input_tokens = usage['input']
+        output_tokens = output_usage.get(model, {}).get('output', 0)
+        model_cost = (input_tokens / 1_000_000 * COSTS[model]["input"]) + (output_tokens / 1_000_000 * COSTS[model]["output"])
+        total_cost += model_cost
+
+        # input_cost = (usage['input'] / 1_000_000) * COSTS[model]["input"]
+        # output_cost = (usage['output'] / 1_000_000) * COSTS[model]["output"]
+        # total_cost += input_cost + output_cost
     return total_cost
 
 def get_all_months(start_date, end_date):
@@ -117,10 +122,10 @@ def get_all_months(start_date, end_date):
         current_date += relativedelta(months=1)
     return months
 
-def plot_token_usage(monthly_model_usage):
+def plot_token_usage(monthly_model_usage_input, monthly_model_usage_output):
     print("Plotting token usage data...")
-    all_months = sorted(monthly_model_usage.keys())
-    all_models = sorted(set(model for month_data in monthly_model_usage.values() for model in month_data.keys()))
+    all_months = sorted(monthly_model_usage_input.keys())
+    all_models = sorted(set(model for month_data in monthly_model_usage_input.values() for model in month_data.keys()))
 
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 20))
     
@@ -128,21 +133,21 @@ def plot_token_usage(monthly_model_usage):
     width = 0.35 / len(all_models)
     
     for i, model in enumerate(all_models):
-        input_data = [monthly_model_usage[month][model]['input'] for month in all_months]
-        output_data = [monthly_model_usage[month][model]['output'] for month in all_months]
+        input_data = [monthly_model_usage_input[month][model]['input'] for month in all_months]
+        output_data = [monthly_model_usage_output[month].get(model, {}).get('output', 0) for month in all_months]
         
         ax1.bar([j + i*width for j in x], input_data, width, label=f'{model} Input', alpha=0.7)
         ax1.bar([j + i*width for j in x], output_data, width, bottom=input_data, label=f'{model} Output', alpha=0.7)
 
     ax1.set_xlabel('Month')
     ax1.set_ylabel('Token Count')
-    ax1.set_title('Monthly Token Usage and Cost by Model')
+    ax1.set_title('Monthly Token Usage by Model')
     ax1.set_xticks([i + width*(len(all_models)-1)/2 for i in x])
     ax1.set_xticklabels(all_months, rotation=45, ha='right')
     ax1.legend(loc='upper left', bbox_to_anchor=(1, 1))
 
     ax1_twin = ax1.twinx()
-    monthly_costs = [calculate_cost(monthly_model_usage[month]) for month in all_months]
+    monthly_costs = [calculate_cost(monthly_model_usage_input[month], monthly_model_usage_output[month]) for month in all_months]
     ax1_twin.plot(x, monthly_costs, color='red', label='Monthly Cost', marker='o', alpha=0.5)
     ax1_twin.set_ylabel('Cost (USD)', color='red')
     ax1_twin.tick_params(axis='y', labelcolor='red')
@@ -152,40 +157,46 @@ def plot_token_usage(monthly_model_usage):
     plt.show()
     print("Plotting completed.")
 
-def print_token_usage(monthly_model_usage, monthly_costs):
+
+def print_token_usage(monthly_model_usage_input, monthly_model_usage_output, monthly_costs):
     """Print the monthly and cumulative token usage with cost for each model."""
     print("Printing token usage data...")
-    all_months = sorted(monthly_model_usage.keys())
-    all_models = set(model for month_data in monthly_model_usage.values() for model in month_data.keys())
+    all_months = sorted(monthly_model_usage_input.keys())
+    all_models = set(model for month_data in monthly_model_usage_input.values() for model in month_data.keys())
 
     print(f'{"Month":<10}{"Model":<15}{"Input Tokens":>15}{"Output Tokens":>15}{"Cost (USD)":>15}')
     for month in all_months:
         for model in all_models:
-            input_tokens = monthly_model_usage[month][model]['input']
-            output_tokens = monthly_model_usage[month][model]['output']
+            input_tokens = monthly_model_usage_input[month][model]['input']
+            output_tokens = monthly_model_usage_output[month].get(model, {}).get('output', 0)
             cost = (input_tokens / 1_000_000 * COSTS[model]["input"]) + (output_tokens / 1_000_000 * COSTS[model]["output"])
             print(f'{month:<10}{model:<15}{input_tokens:>15,}{output_tokens:>15,}{cost:>15,.2f}')
         print(f'{month:<10}{"TOTAL":<15}{"":<15}{"":<15}{monthly_costs[month]:>15,.2f}')
         print('-' * 70)
     print("Printing completed.")
 
+
 def main():
-    json_file_path = 'chatgpt-api-cost-calculator/conversation/conversations2.json'
+    json_file_path = '/Users/kevinc/Development/AI/chatgpt-api-cost-calculator/conversation/conversations.json'
     data = read_conversation_json(json_file_path)
     
     # Load tokenizers for all models once
     tokenizers = load_tokenizers()
     
-    monthly_model_usage = extract_token_usage(data, tokenizers)
+    monthly_model_usage_input, monthly_model_usage_output = extract_token_usage(data, tokenizers)
     
     # Calculate monthly costs
     print("Calculating monthly costs...")
-    monthly_costs = {month: calculate_cost(usage) for month, usage in monthly_model_usage.items()}
+    monthly_costs = {
+            month: calculate_cost(monthly_model_usage_input[month], monthly_model_usage_output[month]) 
+            for month in monthly_model_usage_input.keys()
+        }
     print("Monthly cost calculation completed.")
     
     # Pass both arguments to print_token_usage
-    print_token_usage(monthly_model_usage, monthly_costs)
-    plot_token_usage(monthly_model_usage)
+    print_token_usage(monthly_model_usage_input, monthly_model_usage_output, monthly_costs)
+    plot_token_usage(monthly_model_usage_input, monthly_model_usage_output)
 
 if __name__ == '__main__':
     main()
+ 
