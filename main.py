@@ -46,7 +46,7 @@ def count_tokens(text, tokenizer):
         return 0
 
 def read_conversation_json(file_path):
-    """Read and parse the JSON file containing the conversation data."""
+    """Read and parse the JSON file containing the conversation data. And returns a dict"""
     print(f"Reading data from {file_path}...")
     with open(file_path, 'r') as file:
         data = json.load(file)
@@ -56,8 +56,8 @@ def read_conversation_json(file_path):
 def extract_token_usage(data, tokenizers):
     """Extract the monthly token usage from the conversation data."""
     print("Extracting token usage from conversation data...")
-    monthly_model_usage = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
-    cumulative_history = ""
+    monthly_model_usage_input = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
+    monthly_model_usage_output = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
 
     total_messages = sum(len(conversation['mapping']) for conversation in data)
     processed_messages = 0
@@ -69,28 +69,27 @@ def extract_token_usage(data, tokenizers):
                 message_content = message_data.get('message', {}).get('content', {}).get('parts', [''])
                 author_role = message_data.get('message', {}).get('author', {}).get('role', '')
                 create_time = message_data.get('message', {}).get('create_time')
-                model_slug = message_data.get('message', {}).get('metadata', {}).get('model_slug', 'gpt-4')
-                model = MODEL_MAPPINGS.get(model_slug, 'gpt-4')
-                tokenizer = tokenizers.get(model, tokenizers['gpt-4'])  # Use gpt-4 tokenizer as default
+                model_slug = message_data.get('message', {}).get('metadata', {}).get('model_slug')
+                children = message_data.get('children', [])
                 
-                if create_time and message_content[0]:
+                if create_time and message_content[0] and model_slug:
                     month_key = datetime.fromtimestamp(create_time).strftime('%Y-%m')
+                    model = MODEL_MAPPINGS.get(model_slug, 'gpt-4o')
+                    tokenizer = tokenizers.get(model_slug, tokenizers['gpt-4o'])
                     for part in message_content:
                         if isinstance(part, dict):
                             part = json.dumps(part)
                         
                         if author_role == 'user':
-                            # Add the current user message to the cumulative history
-                            cumulative_history += part + " "
-                            # Tokenize the entire cumulative history
-                            cumulative_token_count = count_tokens(cumulative_history, tokenizer)
-                            monthly_model_usage[month_key][model]['input'] += cumulative_token_count
+                            token_count = count_tokens(part, tokenizer)
+                            monthly_model_usage_input[month_key][model]['input'] += token_count
                         elif author_role == 'assistant':
                             # Tokenize only the assistant's response
                             token_count = count_tokens(part, tokenizer)
-                            monthly_model_usage[month_key][model]['output'] += token_count
+                            monthly_model_usage_output[month_key][model]['output'] += token_count
+                            if children:
+                                monthly_model_usage_input[month_key][model]['input'] += token_count
                             # Add the current assistant message to the cumulative history
-                            cumulative_history += part + " "
             except AttributeError:
                 pass
             
@@ -98,7 +97,7 @@ def extract_token_usage(data, tokenizers):
                 print(f"Processed {processed_messages}/{total_messages} messages...")
 
     print("Token usage extraction completed.")
-    return monthly_model_usage
+    return monthly_model_usage_input, monthly_model_usage_output
 
 def calculate_cost(model_usage):
     """Calculate the cost based on input and output tokens for each model."""
